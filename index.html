@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OraBlock Lab — Scripts Oracle tipo Scratch, Agentes IA y Almacenamiento</title>
+  <meta name="description" content="Aplicación web estática para crear scripts de Oracle Database conectando tarjetas tipo Scratch, elegir agentes y harnesses de IA seguros, y aprender Control File, Datafile y Redo Log de forma visual y sencilla.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="js/catalog.js"></script>
+  <script defer src="js/agents.js"></script>
+  <script defer src="js/storage.js"></script>
+  <script defer src="js/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-workspace">Ir al área principal</a>
+
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="brand" aria-label="OraBlock Lab">
+        <svg class="brand-mark" width="30" height="30" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+          <rect x="2" y="3" width="24" height="10" rx="2.5" fill="#2563EB"/>
+          <path d="M9 13h7l-1.5 3h-4L9 13z" fill="#2563EB"/>
+          <rect x="2" y="15" width="24" height="10" rx="2.5" fill="#047857"/>
+          <path d="M9 15h7l-1.5 3h-4L9 15z" fill="#0F172A"/>
+        </svg>
+        <div class="brand-text">
+          <span class="brand-name">OraBlock Lab</span>
+          <span class="brand-sub">Oracle Scratch, IA y Disco</span>
+        </div>
+      </div>
+
+      <nav class="mode-tabs" role="tablist" aria-label="Módulos de la aplicación">
+        <button type="button" class="mode-tab is-active" role="tab" id="tab-scratch" aria-selected="true" aria-controls="panel-scratch" data-tab="scratch">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 6h16v5a2 2 0 0 0 0 4v5H4v-5a2 2 0 0 1 0-4V6z"/>
+          </svg>
+          <span>1. Armar Script Scratch</span>
+        </button>
+        <button type="button" class="mode-tab" role="tab" id="tab-agents" aria-selected="false" aria-controls="panel-agents" data-tab="agents">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="14" rx="2"/>
+            <path d="M8 21h8M12 18v3M8 10h2m4 0h2M9 14h6"/>
+          </svg>
+          <span>2. Agentes IA y Harness</span>
+        </button>
+        <button type="button" class="mode-tab" role="tab" id="tab-storage" aria-selected="false" aria-controls="panel-storage" data-tab="storage">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <ellipse cx="12" cy="5" rx="8" ry="3"/>
+            <path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/>
+            <path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/>
+          </svg>
+          <span>3. Controlfile, Datafile y Redolog</span>
+        </button>
+      </nav>
+    </div>
+
+    <div class="topbar-actions">
+      <div class="preset-control">
+        <label for="preset-select" class="sr-only">Cargar ejemplo guiado</label>
+        <select id="preset-select" class="select-input">
+          <option value="">Cargar ejemplo guiado...</option>
+          <option value="tablespace_tx">Ejemplo 1: Crear espacio + guardar fila</option>
+          <option value="plsql_savepoint">Ejemplo 2: Bloque PL/SQL con bucle</option>
+          <option value="redo_rman">Ejemplo 3: Rotar Redo Log + Respaldo</option>
+          <option value="storage_views">Ejemplo 4: Consultar archivos en Oracle (V$)</option>
+        </select>
+      </div>
+      <div class="risk-pill" id="header-risk-pill" aria-live="polite">
+        <span class="risk-dot"></span>
+        <span id="header-risk-label">Riesgo bajo</span>
+      </div>
+      <button type="button" class="btn btn-secondary" id="btn-copy-script" title="Copiar script Oracle al portapapeles">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="9" y="9" width="13" height="13" rx="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+        <span>Copiar script</span>
+      </button>
+      <button type="button" class="btn btn-primary" id="btn-download-script">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        <span>Descargar .sql</span>
+      </button>
+    </div>
+  </header>
+
+  <main id="main-workspace" class="workspace-shell">
+    <!-- PANEL 1: SCRATCH BUILDER -->
+    <section id="panel-scratch" class="tab-panel is-active" role="tabpanel" aria-labelledby="tab-scratch">
+      <div class="ide-grid">
+        <!-- Left Palette -->
+        <aside class="palette-pane" aria-label="Paleta de tarjetas Scratch">
+          <div class="pane-header">
+            <h2 class="pane-title">Paso 1: Elige tarjetas</h2>
+            <span class="pane-meta" id="palette-count">27 bloques</span>
+          </div>
+          <div class="palette-tools">
+            <label for="palette-search" class="sr-only">Buscar comando Oracle</label>
+            <input id="palette-search" type="search" class="search-input" placeholder="Buscar por nombre (ej. tabla, guardar, backup)">
+            <div class="category-filters" id="category-filters" role="group" aria-label="Filtrar por categoría">
+              <button type="button" class="cat-btn is-active" data-category="all">Todas</button>
+              <button type="button" class="cat-btn" data-category="session">Sesión</button>
+              <button type="button" class="cat-btn" data-category="ddl">Tablas (DDL)</button>
+              <button type="button" class="cat-btn" data-category="dml">Datos (DML)</button>
+              <button type="button" class="cat-btn" data-category="storage">Disco</button>
+              <button type="button" class="cat-btn" data-category="plsql">PL/SQL</button>
+              <button type="button" class="cat-btn" data-category="rman">Respaldo RMAN</button>
+            </div>
+          </div>
+          <div class="palette-list" id="palette-list"></div>
+        </aside>
+
+        <!-- Center Scratch Canvas -->
+        <section class="canvas-pane" aria-label="Lienzo de bloques conectados">
+          <div class="canvas-toolbar">
+            <div>
+              <h1 class="canvas-title">Paso 2: Conecta las tarjetas en orden</h1>
+              <p class="canvas-subtitle">Haz clic en "+ Conectar tarjeta" o arrástrala al lienzo. Edita los campos oscuros de cada pieza para personalizar tu script.</p>
+            </div>
+            <div class="canvas-toolbar-actions">
+              <span class="count-badge" id="canvas-block-count">0 bloques</span>
+              <button type="button" class="btn btn-ghost" id="btn-clear-canvas">Vaciar lienzo</button>
+            </div>
+          </div>
+
+          <div class="guide-banner" id="scratch-guide-banner">
+            <div class="guide-steps">
+              <span><strong>Colores Scratch:</strong></span>
+              <span class="legend-chip theme-session">Gris: Sesión</span>
+              <span class="legend-chip theme-ddl">Azul: Estructura</span>
+              <span class="legend-chip theme-dml">Verde: Datos y COMMIT</span>
+              <span class="legend-chip theme-storage">Ámbar: Disco</span>
+              <span class="legend-chip theme-plsql">Morado: Bloque C PL/SQL</span>
+              <span class="legend-chip theme-rman">Rojo: Backup RMAN</span>
+            </div>
+            <button type="button" class="icon-btn" id="btn-dismiss-guide" title="Ocultar guía de colores" aria-label="Ocultar guía de colores">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+
+          <div class="canvas-dropzone" id="canvas-dropzone" tabindex="0" aria-label="Área de ensamblaje de tarjetas Oracle">
+            <div id="block-stack" class="block-stack"></div>
+          </div>
+
+          <footer class="canvas-statusbar" aria-live="polite">
+            <div class="status-group">
+              <span class="status-chip" id="status-mode">SQL*Plus / SQLcl</span>
+              <span class="status-chip" id="status-lines">0 líneas</span>
+            </div>
+            <div class="status-actions">
+              <button type="button" class="link-btn" id="btn-jump-agents">Ver qué IA y Harness usar con este script</button>
+              <button type="button" class="link-btn" id="btn-jump-storage">Simular efecto en Controlfile / Datafile / Redolog</button>
+            </div>
+          </footer>
+        </section>
+
+        <!-- Right Live Inspector -->
+        <aside class="inspector-pane" aria-label="Script Oracle generado e inspector">
+          <div class="pane-header">
+            <h2 class="pane-title">Paso 3: Tu script Oracle listo</h2>
+            <div class="script-format-toggle" role="group" aria-label="Formato de vista previa">
+              <button type="button" class="mini-tab is-active" data-output="sql">SQL / PL-SQL</button>
+              <button type="button" class="mini-tab" data-output="rman">Solo RMAN</button>
+            </div>
+          </div>
+
+          <div class="code-container">
+            <div class="code-gutter" id="code-gutter" aria-hidden="true"></div>
+            <pre class="code-output" id="code-output" aria-live="polite"><code></code></pre>
+          </div>
+
+          <div class="inspector-section" aria-label="Revisión automática del script">
+            <div class="section-head">
+              <h3 class="section-title">Revisión automática</h3>
+              <span class="count-badge" id="lint-count">0 avisos</span>
+            </div>
+            <ul class="lint-list" id="lint-list"></ul>
+          </div>
+
+          <div class="inspector-section harness-preview-card" aria-label="Resumen de agente y harness IA">
+            <div class="section-head">
+              <h3 class="section-title">Agente y Harness recomendados</h3>
+              <span class="risk-tag" id="inspector-risk-badge">Bajo</span>
+            </div>
+            <p class="harness-summary" id="inspector-harness-summary"></p>
+            <div class="harness-tags" id="inspector-harness-tags"></div>
+            <button type="button" class="btn btn-secondary btn-full" id="btn-open-harness-tab">Ver guía paso a paso y copiar prompt IA</button>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- PANEL 2: AI AGENTS & HARNESS RECOMMENDER -->
+    <section id="panel-agents" class="tab-panel" role="tabpanel" aria-labelledby="tab-agents" hidden>
+      <div class="module-container">
+        <div class="module-header">
+          <div>
+            <h1 class="module-title">¿Cómo usar IA de forma segura con Oracle?</h1>
+            <p class="module-lead">Nunca le des acceso directo sin control a una IA sobre tu base de datos. Elige dónde vas a trabajar y la app evaluará tu script Scratch actual para recomendarte el <strong>Agente</strong> y el <strong>Harness</strong> ideales.</p>
+          </div>
+          <div class="scenario-controls">
+            <label for="ai-env-select" class="field-label">¿Dónde vas a ejecutar el script?</label>
+            <select id="ai-env-select" class="select-input">
+              <option value="local_pdb">Mi PC / Docker Oracle Free (Aprendizaje)</option>
+              <option value="staging">Servidor de pruebas / QA</option>
+              <option value="prod_ro">Producción (Solo consultar y revisar errores)</option>
+              <option value="cicd">Repositorio Git con revisión en equipo (CI/CD)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="concept-strip">
+          <div class="concept-pill-card">
+            <strong>¿Qué es el Agente?</strong>
+            <p>Es el programa con IA (como Gemini CLI, Claude Code o Codex CLI) que lee tu objetivo, redacta el comando Oracle y detecta errores.</p>
+          </div>
+          <div class="concept-pill-card">
+            <strong>¿Qué es el Harness?</strong>
+            <p>Es el "cinturón de seguridad" que rodea al agente: define qué permisos tiene en Oracle (MCP), si trabaja en una copia desechable (sandbox) y cuándo debe pedirte permiso antes de ejecutar.</p>
+          </div>
+        </div>
+
+        <div class="agent-top-grid">
+          <article class="panel-card diagnosis-card">
+            <div class="card-head">
+              <h2>Evaluación de tu script actual</h2>
+              <span class="risk-tag" id="ai-script-risk-badge">Analizando</span>
+            </div>
+            <p id="ai-script-diagnosis" class="card-body-text"></p>
+            <div class="metrics-row" id="ai-script-breakdown"></div>
+            <div class="guardrail-box">
+              <h3>Reglas de seguridad recomendadas</h3>
+              <ul id="ai-guardrail-list" class="check-list"></ul>
+            </div>
+          </article>
+
+          <article class="panel-card recommendation-card">
+            <div class="card-head">
+              <h2>Tu mejor combinación Agente + Harness</h2>
+              <span class="badge-accent" id="ai-primary-badge">Recomendado</span>
+            </div>
+            <div id="ai-primary-recommendation"></div>
+          </article>
+        </div>
+
+        <section class="panel-card" aria-label="Matriz comparativa de agentes y harnesses">
+          <div class="card-head">
+            <h2>Compara las 5 formas de conectar una IA a Oracle</h2>
+            <span class="pane-meta">Haz clic en cualquier fila para ver su detalle y generar su configuración</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="agent-matrix-table">
+              <thead>
+                <tr>
+                  <th>Agente IA</th>
+                  <th>Harness (Cinturón de seguridad)</th>
+                  <th>Cómo protege tu base</th>
+                  <th>Cuándo conviene usarlo</th>
+                  <th>Riesgo máximo permitido</th>
+                </tr>
+              </thead>
+              <tbody id="agent-matrix-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel-card" aria-label="Generador de archivos de configuración y prompt">
+          <div class="card-head">
+            <h2>Copia y pega esta configuración en tu proyecto</h2>
+            <div class="kit-tabs" role="tablist" aria-label="Artefactos de harness">
+              <button type="button" class="mini-tab is-active" data-kit="prompt">1. Prompt listo</button>
+              <button type="button" class="mini-tab" data-kit="agents_md">2. Reglas AGENTS.md</button>
+              <button type="button" class="mini-tab" data-kit="mcp_json">3. Conexión SQLcl MCP</button>
+            </div>
+          </div>
+          <p class="kit-description" id="kit-description"></p>
+          <div class="kit-code-wrap">
+            <pre class="kit-code" id="kit-code-output"><code></code></pre>
+            <button type="button" class="btn btn-primary kit-copy-btn" id="btn-copy-kit">Copiar configuración</button>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- PANEL 3: DIDACTIC STORAGE EXPLAINER & SIMULATOR -->
+    <section id="panel-storage" class="tab-panel" role="tabpanel" aria-labelledby="tab-storage" hidden>
+      <div class="module-container">
+        <div class="module-header">
+          <div>
+            <h1 class="module-title">¿Dónde guarda Oracle tus datos? Control File, Datafile y Redo Log</h1>
+            <p class="module-lead">Cuando guardas un dato en Oracle no se escribe todo en un solo archivo. Sigue los botones del <strong>1 al 6</strong> para ver qué pasa en memoria (RAM) y en los tres archivos del disco, incluso si se corta la luz.</p>
+          </div>
+          <div class="sim-scn-readout" aria-live="polite">
+            <div class="scn-box">
+              <span class="scn-label">Reloj lógico (SCN)</span>
+              <strong class="scn-value" id="sim-scn">410200</strong>
+            </div>
+            <div class="scn-box">
+              <span class="scn-label">Turno Redo Log</span>
+              <strong class="scn-value" id="sim-seq">#42</strong>
+            </div>
+            <div class="scn-box">
+              <span class="scn-label">Base de datos</span>
+              <strong class="scn-value status-open" id="sim-db-state">OPEN</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3-Card Plain Summary Strip -->
+        <div class="trio-summary">
+          <div class="trio-card trio-ctrl">
+            <strong>Control File (.ctl) — "El Índice Maestro"</strong>
+            <p>Guarda el mapa de dónde está cada archivo y cuál fue el último punto sincronizado (SCN). Sin él, Oracle no sabe arrancar.</p>
+          </div>
+          <div class="trio-card trio-data">
+            <strong>Datafile (.dbf) — "El Archivador de Tablas"</strong>
+            <p>Aquí viven físicamente tus tablas e índices. Para ir rápido, Oracle actualiza este archivo después, en lotes.</p>
+          </div>
+          <div class="trio-card trio-redo">
+            <strong>Redo Log (.log) — "La Libreta de Emergencias"</strong>
+            <p>Anota cada <code>COMMIT</code> al instante en disco antes de decirte "Guardado". Si se corta la luz, recupera todo desde aquí.</p>
+          </div>
+        </div>
+
+        <!-- Interactive Simulation Controls -->
+        <div class="sim-controls-bar" role="group" aria-label="Controles del simulador de transacciones Oracle">
+          <button type="button" class="btn sim-btn is-suggested" data-sim="dml">1. Insertar dato (Sin COMMIT)</button>
+          <button type="button" class="btn sim-btn sim-commit" data-sim="commit">2. Confirmar (COMMIT)</button>
+          <button type="button" class="btn sim-btn" data-sim="dbwn">3. Guardar a Datafile (DBWn)</button>
+          <button type="button" class="btn sim-btn sim-ckpt" data-sim="checkpoint">4. Sincronizar todo (Checkpoint)</button>
+          <button type="button" class="btn sim-btn sim-crash" data-sim="crash">5. Cortar la luz (Fallo)</button>
+          <button type="button" class="btn sim-btn sim-recover" data-sim="recover">6. Recuperar al encender (SMON)</button>
+          <button type="button" class="btn btn-ghost" id="btn-sim-reset">Reiniciar ejemplo</button>
+        </div>
+
+        <div class="sim-explanation-banner" id="sim-explanation" aria-live="polite">
+          <strong>Estado inicial equilibrado:</strong> Todos los archivos coinciden en el SCN 410200 y el saldo guardado es 500. Pulsa el botón resaltado <strong>1. Insertar dato (Sin COMMIT)</strong> para empezar.
+        </div>
+
+        <!-- Visual Memory -> Processes -> Disk Architecture -->
+        <div class="storage-stage">
+          <div class="stage-column">
+            <h2 class="stage-heading">1. Memoria RAM (SGA · Rápida pero se borra sin luz)</h2>
+            <div class="storage-node" id="node-buffer-cache">
+              <div class="node-head">
+                <strong>Buffer Cache (Copia temporal de tablas)</strong>
+                <span class="node-badge" id="badge-buffer">LIMPIO</span>
+              </div>
+              <p class="node-desc">Aquí cambias los datos primero porque la RAM es miles de veces más rápida que el disco.</p>
+              <div class="node-state" id="state-buffer">Bloque #104 en RAM: Saldo = 500</div>
+            </div>
+
+            <div class="storage-node" id="node-log-buffer">
+              <div class="node-head">
+                <strong>Redo Log Buffer (Borrador de cambios)</strong>
+                <span class="node-badge" id="badge-logbuf">VACÍO</span>
+              </div>
+              <p class="node-desc">Anota cada cambio que haces antes de enviarlo al Redo Log en disco.</p>
+              <div class="node-state" id="state-logbuf">Sin cambios pendientes en borrador</div>
+            </div>
+          </div>
+
+          <div class="stage-processes" aria-label="Trabajadores automáticos de Oracle">
+            <h2 class="stage-heading">2. Procesos (Mensajeros)</h2>
+            <div class="proc-pill" id="proc-lgwr">
+              <strong>LGWR (Log Writer)</strong>
+              <span>Vuelca cada COMMIT al Redo Log al instante</span>
+            </div>
+            <div class="proc-pill" id="proc-dbwn">
+              <strong>DBWn (Database Writer)</strong>
+              <span>Copia bloques sucios de RAM al Datafile cuando puede</span>
+            </div>
+            <div class="proc-pill" id="proc-ckpt">
+              <strong>CKPT (Checkpoint)</strong>
+              <span>Sella el número SCN en Control File y Datafiles</span>
+            </div>
+            <div class="proc-pill" id="proc-smon">
+              <strong>SMON (System Monitor)</strong>
+              <span>Al reiniciar tras fallo, repara todo usando Redo Log</span>
+            </div>
+          </div>
+
+          <div class="stage-column stage-disk">
+            <h2 class="stage-heading">3. Disco Duro (Permanente · Sobrevive a apagones)</h2>
+
+            <div class="disk-file file-redo" id="node-redolog">
+              <div class="node-head">
+                <strong>Online Redo Log (Grupo 1 y Grupo 2 en turno)</strong>
+                <span class="node-badge" id="badge-redo">GRUPO 1 ACTIVO</span>
+              </div>
+              <p class="node-desc">Recibe los cambios confirmados al hacer <code>COMMIT</code>. Es la garantía contra pérdida de datos.</p>
+              <div class="redo-groups" id="state-redo"></div>
+            </div>
+
+            <div class="disk-file file-data" id="node-datafile">
+              <div class="node-head">
+                <strong>Datafile (<code>users_01.dbf</code>)</strong>
+                <span class="node-badge" id="badge-datafile">SCN 410200</span>
+              </div>
+              <p class="node-desc">Archivo real donde reposan tus tablas. A veces va un paso atrás del Redo Log hasta el siguiente Checkpoint.</p>
+              <div class="node-state" id="state-datafile">Cabecera SCN: 410200 · Saldo en disco: 500</div>
+            </div>
+
+            <div class="disk-file file-ctrl" id="node-controlfile">
+              <div class="node-head">
+                <strong>Control File (<code>control01.ctl</code> + copia 02)</strong>
+                <span class="node-badge" id="badge-ctrl">CKPT SCN 410200</span>
+              </div>
+              <p class="node-desc">Guarda la lista oficial de archivos y el último Checkpoint SCN confirmado.</p>
+              <div class="node-state" id="state-ctrl">Checkpoint SCN: 410200 · Datafiles: 4 · Redo Seq: #42</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Deep Didactic Guide Cards -->
+        <div class="didactic-section">
+          <div class="card-head">
+            <h2>Aprende cada archivo en 1 minuto</h2>
+            <div class="didactic-tabs" role="tablist" aria-label="Guía didáctica por tipo de archivo">
+              <button type="button" class="mini-tab is-active" data-doc="controlfile">Control File (.ctl)</button>
+              <button type="button" class="mini-tab" data-doc="datafile">Datafile (.dbf)</button>
+              <button type="button" class="mini-tab" data-doc="redolog">Redo Log (.log)</button>
+              <button type="button" class="mini-tab" data-doc="comparison">Qué pasa si se daña cada uno</button>
+            </div>
+          </div>
+          <div class="didactic-body" id="didactic-body"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="app-toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
