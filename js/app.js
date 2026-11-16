@@ -3,6 +3,7 @@
 
   var STORAGE_KEY = "orablock_lab_workspace_v1";
   var GUIDE_DISMISSED_KEY = "orablock_hide_guide_v1";
+  var VIEW_PREFS_KEY = "orablock_view_prefs_v1";
   var Catalog = global.OraBlock.Catalog;
   var Agents = global.OraBlock.Agents;
   var Storage = global.OraBlock.Storage;
@@ -15,9 +16,15 @@
     aiEnv: "local_pdb",
     kitTab: "prompt",
     selectedAgentId: null,
+    selectedBlockUid: null,
     docTab: "controlfile",
     activeParentUid: "",
+    compactCards: false,
+    paletteCollapsed: false,
+    canvasExpanded: false,
     blocks: [],
+    undoStack: [],
+    redoStack: [],
     simState: Storage.createInitialSimState(),
     dragPayload: null
   };
@@ -53,6 +60,7 @@
       if (raw.uid && typeof raw.uid === "string") {
         clean.uid = raw.uid;
       }
+      clean.disabled = Boolean(raw.disabled);
       if (def.kind === "cblock") {
         clean.children = sanitizeBlockList(raw.children);
       }
@@ -67,6 +75,117 @@
     } catch (e) {
       // Ignore storage quota errors in private browsing
     }
+  }
+
+  function saveViewPrefs() {
+    try {
+      localStorage.setItem(
+        VIEW_PREFS_KEY,
+        JSON.stringify({
+          compactCards: state.compactCards,
+          paletteCollapsed: state.paletteCollapsed,
+          canvasExpanded: state.canvasExpanded
+        })
+      );
+    } catch (e) {
+      // Ignore storage errors
+    }
+  }
+
+  function loadViewPrefs() {
+    try {
+      var raw = localStorage.getItem(VIEW_PREFS_KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          state.compactCards = Boolean(parsed.compactCards);
+          state.paletteCollapsed = Boolean(parsed.paletteCollapsed);
+          state.canvasExpanded = Boolean(parsed.canvasExpanded);
+        }
+      }
+    } catch (e) {
+      // Defaults remain false
+    }
+  }
+
+  function applyWorkbenchPrefs() {
+    var grid = document.getElementById("ide-grid");
+    var stack = document.getElementById("block-stack");
+    var btnCompact = document.getElementById("btn-toggle-compact");
+    var btnPalette = document.getElementById("btn-toggle-palette");
+    var btnExpand = document.getElementById("btn-expand-canvas");
+    var btnRestore = document.getElementById("btn-restore-panes");
+
+    if (grid) {
+      grid.classList.toggle("is-palette-hidden", state.paletteCollapsed && !state.canvasExpanded);
+      grid.classList.toggle("is-canvas-expanded", state.canvasExpanded);
+    }
+    if (stack) {
+      stack.classList.toggle("is-compact", state.compactCards);
+    }
+    if (btnCompact) {
+      btnCompact.classList.toggle("is-active", state.compactCards);
+      btnCompact.setAttribute("aria-pressed", state.compactCards ? "true" : "false");
+      btnCompact.textContent = state.compactCards ? "Vista detallada" : "Vista compacta";
+    }
+    if (btnPalette) {
+      var hiddenPalette = state.paletteCollapsed && !state.canvasExpanded;
+      btnPalette.classList.toggle("is-active", hiddenPalette);
+      btnPalette.setAttribute("aria-pressed", hiddenPalette ? "true" : "false");
+      btnPalette.textContent = hiddenPalette ? "Mostrar paleta" : "Ocultar paleta";
+    }
+    if (btnExpand) {
+      btnExpand.classList.toggle("is-active", state.canvasExpanded);
+      btnExpand.setAttribute("aria-pressed", state.canvasExpanded ? "true" : "false");
+      btnExpand.textContent = state.canvasExpanded ? "Vista 3 paneles" : "Lienzo amplio";
+    }
+    if (btnRestore) {
+      btnRestore.hidden = !state.canvasExpanded;
+    }
+  }
+
+  function updateHistoryButtons() {
+    var btnUndo = document.getElementById("btn-undo");
+    var btnRedo = document.getElementById("btn-redo");
+    if (btnUndo) btnUndo.disabled = state.undoStack.length === 0;
+    if (btnRedo) btnRedo.disabled = state.redoStack.length === 0;
+  }
+
+  function recordUndoSnapshot() {
+    var snap = JSON.stringify(state.blocks);
+    if (state.undoStack.length && state.undoStack[state.undoStack.length - 1] === snap) {
+      return;
+    }
+    state.undoStack.push(snap);
+    if (state.undoStack.length > 30) state.undoStack.shift();
+    state.redoStack = [];
+    updateHistoryButtons();
+  }
+
+  function performUndo() {
+    if (!state.undoStack.length) return;
+    state.redoStack.push(JSON.stringify(state.blocks));
+    state.blocks = sanitizeBlockList(JSON.parse(state.undoStack.pop()));
+    if (state.activeParentUid && !findLocation(state.blocks, state.activeParentUid)) {
+      state.activeParentUid = "";
+    }
+    saveWorkspace();
+    renderAll();
+    updateHistoryButtons();
+    showToast("Cambio deshecho");
+  }
+
+  function performRedo() {
+    if (!state.redoStack.length) return;
+    state.undoStack.push(JSON.stringify(state.blocks));
+    state.blocks = sanitizeBlockList(JSON.parse(state.redoStack.pop()));
+    if (state.activeParentUid && !findLocation(state.blocks, state.activeParentUid)) {
+      state.activeParentUid = "";
+    }
+    saveWorkspace();
+    renderAll();
+    updateHistoryButtons();
+    showToast("Cambio rehecho");
   }
 
   function loadWorkspace() {
@@ -137,9 +256,11 @@
   function insertBlockAt(commandId, parentUid, index) {
     var instance = Catalog.createBlockInstance(commandId);
     if (!instance) return;
+    recordUndoSnapshot();
     var list = getTargetList(parentUid);
     var idx = typeof index === "number" ? Math.max(0, Math.min(index, list.length)) : list.length;
     list.splice(idx, 0, instance);
+    state.selectedBlockUid = instance.uid;
     saveWorkspace();
     renderAll();
   }
@@ -154,6 +275,7 @@
       }
     }
 
+    recordUndoSnapshot();
     var destList = getTargetList(targetParentUid);
     var adjustedIndex = targetIndex;
     if (srcLoc.list === destList && srcLoc.index < targetIndex) {
@@ -162,6 +284,7 @@
     srcLoc.list.splice(srcLoc.index, 1);
     adjustedIndex = Math.max(0, Math.min(adjustedIndex, destList.length));
     destList.splice(adjustedIndex, 0, srcLoc.item);
+    state.selectedBlockUid = uid;
     saveWorkspace();
     renderAll();
   }
@@ -171,9 +294,11 @@
     if (!loc) return;
     var newIdx = loc.index + delta;
     if (newIdx < 0 || newIdx >= loc.list.length) return;
+    recordUndoSnapshot();
     var tmp = loc.list[loc.index];
     loc.list[loc.index] = loc.list[newIdx];
     loc.list[newIdx] = tmp;
+    state.selectedBlockUid = uid;
     saveWorkspace();
     renderAll();
   }
@@ -182,7 +307,8 @@
     var copy = {
       uid: "blk_" + Math.random().toString(36).slice(2, 9),
       commandId: item.commandId,
-      params: Object.assign({}, item.params)
+      params: Object.assign({}, item.params),
+      disabled: Boolean(item.disabled)
     };
     if (Array.isArray(item.children)) {
       copy.children = item.children.map(cloneBlockDeep);
@@ -193,7 +319,10 @@
   function duplicateBlock(uid) {
     var loc = findLocation(state.blocks, uid);
     if (!loc) return;
-    loc.list.splice(loc.index + 1, 0, cloneBlockDeep(loc.item));
+    recordUndoSnapshot();
+    var copy = cloneBlockDeep(loc.item);
+    loc.list.splice(loc.index + 1, 0, copy);
+    state.selectedBlockUid = copy.uid;
     saveWorkspace();
     renderAll();
   }
@@ -201,18 +330,35 @@
   function unnestBlock(uid) {
     var loc = findLocation(state.blocks, uid);
     if (!loc || !loc.parentList) return;
+    recordUndoSnapshot();
     var extracted = loc.list.splice(loc.index, 1)[0];
     loc.parentList.splice(loc.parentIndex + 1, 0, extracted);
+    state.selectedBlockUid = uid;
     saveWorkspace();
     renderAll();
     showToast("Tarjeta sacada fuera del bloque contenedor");
   }
 
+  function toggleDisabledBlock(uid) {
+    var loc = findLocation(state.blocks, uid);
+    if (!loc) return;
+    recordUndoSnapshot();
+    loc.item.disabled = !loc.item.disabled;
+    state.selectedBlockUid = uid;
+    saveWorkspace();
+    renderAll();
+    showToast(loc.item.disabled ? "Tarjeta pausada (comentada en script)" : "Tarjeta reactivada en script");
+  }
+
   function deleteBlock(uid) {
     var loc = findLocation(state.blocks, uid);
     if (!loc) return;
+    recordUndoSnapshot();
     if (state.activeParentUid === uid || isDescendant(loc.item, state.activeParentUid)) {
       state.activeParentUid = "";
+    }
+    if (state.selectedBlockUid === uid) {
+      state.selectedBlockUid = null;
     }
     loc.list.splice(loc.index, 1);
     saveWorkspace();
@@ -235,13 +381,16 @@
 
     var q = state.searchQuery.trim().toLowerCase();
     var filtered = Catalog.COMMANDS.filter(function (cmd) {
-      var catOk = state.categoryFilter === "all" || cmd.category === state.categoryFilter;
+      var catOk =
+        state.categoryFilter === "all" ||
+        (state.categoryFilter === "cblocks" ? cmd.kind === "cblock" : cmd.category === state.categoryFilter);
       if (!catOk) return false;
       if (!q) return true;
       return (
         cmd.title.toLowerCase().indexOf(q) !== -1 ||
         cmd.syntaxPreview.toLowerCase().indexOf(q) !== -1 ||
-        cmd.hint.toLowerCase().indexOf(q) !== -1
+        cmd.hint.toLowerCase().indexOf(q) !== -1 ||
+        (cmd.impactTag && cmd.impactTag.toLowerCase().indexOf(q) !== -1)
       );
     });
 
@@ -253,16 +402,18 @@
       container.innerHTML =
         '<div class="lint-item">No hay tarjetas que coincidan con "' +
         escapeHtml(state.searchQuery) +
-        '". Prueba con TABLESPACE, COMMIT, SELECT o RMAN.</div>';
+        '". Prueba con TABLESPACE, IF, MERGE, RMAN o USER.</div>';
       return;
     }
 
     container.innerHTML = filtered
       .map(function (cmd) {
         var cat = Catalog.CATEGORIES[cmd.category];
+        var badgeText = cmd.kind === "cblock" ? cat.label + " · Bloque C" : cat.label;
         return (
           '<article class="palette-card ' +
           cat.theme +
+          (cmd.kind === "cblock" ? " is-cblock-palette" : "") +
           '" draggable="true" data-command-id="' +
           escapeHtml(cmd.id) +
           '">' +
@@ -271,17 +422,22 @@
           escapeHtml(cmd.title) +
           "</span>" +
           '<span class="palette-card-cat">' +
-          escapeHtml(cat.label) +
+          escapeHtml(badgeText) +
           "</span>" +
           "</div>" +
           '<div class="palette-card-syntax">' +
           escapeHtml(cmd.syntaxPreview) +
           "</div>" +
+          '<div class="palette-card-footer">' +
           '<button type="button" class="palette-card-add" data-add-cmd="' +
           escapeHtml(cmd.id) +
           '" aria-label="Conectar ' +
           escapeHtml(cmd.title) +
           ' al lienzo">+ Conectar tarjeta</button>' +
+          (cmd.impactTag
+            ? '<span class="palette-card-impact">' + escapeHtml(cmd.impactTag) + "</span>"
+            : "") +
+          "</div>" +
           "</article>"
         );
       })
@@ -349,6 +505,21 @@
   }
 
   function renderControlsHtml(blk, def, index, total, isNested) {
+    var toggleDisabledBtn =
+      '<button type="button" class="icon-btn' +
+      (blk.disabled ? " is-toggled" : "") +
+      '" data-action="toggle-disabled" data-uid="' +
+      escapeHtml(blk.uid) +
+      '" title="' +
+      (blk.disabled ? "Reactivar tarjeta en script" : "Pausar tarjeta (comentar)") +
+      '" aria-label="' +
+      (blk.disabled ? "Reactivar " : "Pausar ") +
+      escapeHtml(def.title) +
+      '">' +
+      (blk.disabled
+        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>'
+        : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>') +
+      "</button>";
     var unnestBtn = isNested
       ? '<button type="button" class="icon-btn" data-action="unnest" data-uid="' +
         escapeHtml(blk.uid) +
@@ -360,6 +531,7 @@
       : "";
     return (
       '<div class="block-controls">' +
+      toggleDisabledBtn +
       unnestBtn +
       '<button type="button" class="icon-btn" data-action="up" data-uid="' +
       escapeHtml(blk.uid) +
@@ -423,19 +595,31 @@
       stepCounter.n += 1;
       var stepLabel = (stepCounter.n < 10 ? "0" : "") + stepCounter.n;
       var cat = Catalog.CATEGORIES[def.category];
-      var impactHtml = def.impactTag
-        ? '<span class="block-impact-badge">' + escapeHtml(def.impactTag) + "</span>"
+      var isSelected = state.selectedBlockUid === blk.uid;
+      var statusCls = (blk.disabled ? " is-disabled" : "") + (isSelected ? " is-selected" : "");
+      var impactText = blk.disabled ? "Pausado" : def.impactTag;
+      var impactHtml = impactText
+        ? '<span class="block-impact-badge">' + escapeHtml(impactText) + "</span>"
         : "";
 
       if (def.kind === "cblock") {
         var children = blk.children || [];
+        var isRmanBox = def.category === "rman" || def.cblockFamily === "rman";
+        var quickCmd = isRmanBox ? "rman_backup_db" : "dbms_output";
+        var quickLabel = isRmanBox ? "+ Backup DB" : "+ DBMS_OUTPUT";
+        var footText = def.footLabel || (def.id === "plsql_loop" ? "END LOOP;" : "EXCEPTION / END;");
+        var isTarget = state.activeParentUid === blk.uid;
         var innerHtml = children.length
           ? renderBlockList(children, blk.uid, stepCounter)
           : '<div class="drop-slot" data-parent-uid="' +
             escapeHtml(blk.uid) +
             '" data-index="0"></div><div class="cblock-empty-hint">Arrastra tarjetas aquí dentro o pulsa "Añadir tarjetas aquí dentro" para anidarlas.</div>';
         html.push(
-          '<div class="scratch-cblock" draggable="true" data-uid="' +
+          '<div class="scratch-cblock ' +
+            cat.theme +
+            statusCls +
+            (isTarget ? " is-nesting-target" : "") +
+            '" draggable="true" data-uid="' +
             escapeHtml(blk.uid) +
             '">' +
             '<div class="cblock-head ' +
@@ -466,17 +650,21 @@
             "</div>" +
             '<div class="cblock-foot">' +
             "<span>" +
-            (def.id === "plsql_loop" ? "END LOOP;" : "EXCEPTION / END;") +
+            escapeHtml(footText) +
             "</span>" +
             '<div class="block-controls">' +
             '<button type="button" class="palette-card-add" data-target-cblock="' +
             escapeHtml(blk.uid) +
             '">' +
-            (state.activeParentUid === blk.uid ? "Destino activo (clic para salir)" : "Añadir tarjetas aquí dentro") +
+            (isTarget ? "Destino activo (clic para salir)" : "Añadir tarjetas aquí dentro") +
             "</button>" +
             '<button type="button" class="palette-card-add" data-insert-inside="' +
             escapeHtml(blk.uid) +
-            '">+ DBMS_OUTPUT</button>' +
+            '" data-inside-cmd="' +
+            escapeHtml(quickCmd) +
+            '">' +
+            quickLabel +
+            "</button>" +
             "</div>" +
             "</div>" +
             "</div>"
@@ -485,6 +673,7 @@
         html.push(
           '<div class="scratch-block ' +
             cat.theme +
+            statusCls +
             '" draggable="true" data-uid="' +
             escapeHtml(blk.uid) +
             '">' +
@@ -520,15 +709,39 @@
     return html.join("");
   }
 
+  function renderNestingBanner() {
+    var banner = document.getElementById("nesting-target-banner");
+    var label = document.getElementById("nesting-target-label");
+    if (!banner || !label) return;
+    if (!state.activeParentUid) {
+      banner.hidden = true;
+      return;
+    }
+    var loc = findLocation(state.blocks, state.activeParentUid);
+    if (!loc) {
+      state.activeParentUid = "";
+      banner.hidden = true;
+      return;
+    }
+    var def = Catalog.COMMAND_MAP[loc.item.commandId];
+    label.innerHTML =
+      "<strong>Modo anidamiento activo:</strong> Las tarjetas nuevas entrarán dentro de «" +
+      escapeHtml(def ? def.title : "Contenedor") +
+      "».";
+    banner.hidden = false;
+  }
+
   function renderCanvas() {
     var stackEl = document.getElementById("block-stack");
     var countBadge = document.getElementById("canvas-block-count");
     if (!stackEl) return;
 
+    renderNestingBanner();
     var analysis = Catalog.analyzeScript(state.blocks);
     if (countBadge) {
+      var disabledNote = analysis.counts.disabled > 0 ? " (" + analysis.counts.disabled + " pausados)" : "";
       countBadge.textContent =
-        analysis.counts.total + (analysis.counts.total === 1 ? " bloque" : " bloques");
+        analysis.counts.total + (analysis.counts.total === 1 ? " bloque" : " bloques") + disabledNote;
     }
 
     if (state.blocks.length === 0) {
@@ -538,7 +751,8 @@
         "<p>Empieza haciendo clic en las tarjetas de comandos de la izquierda o carga una plantilla guiada para ver cómo se genera el script y cómo impacta el almacenamiento.</p>" +
         '<div class="empty-actions">' +
         '<button type="button" class="btn btn-primary" data-load-preset="tablespace_tx">Cargar Tablespace + Transacción</button>' +
-        '<button type="button" class="btn btn-secondary" data-load-preset="redo_rman">Cargar Log Switch + RMAN</button>' +
+        '<button type="button" class="btn btn-secondary" data-load-preset="plsql_savepoint">Cargar PL/SQL con IF y Bucle</button>' +
+        '<button type="button" class="btn btn-secondary" data-load-preset="redo_rman">Cargar Log Switch + RMAN RUN</button>' +
         "</div></div>";
       return;
     }
@@ -573,9 +787,15 @@
     }
   }
 
-  function renderScriptAndRecommendations() {
-    var scriptText = Catalog.buildScript(state.blocks, state.outputMode);
+  function renderScriptAndRecommendations(scrollCodeToSelection) {
+    var scriptMap = Catalog.buildScriptWithMap(state.blocks, state.outputMode);
+    var scriptText = scriptMap.text;
+    var activeRange =
+      state.selectedBlockUid && scriptMap.blockRanges
+        ? scriptMap.blockRanges[state.selectedBlockUid] || null
+        : null;
     var analysis = Catalog.analyzeScript(state.blocks);
+    var impact = Catalog.summarizeStorageImpact(state.blocks);
     var rec = Agents.recommendForContext(analysis, state.aiEnv);
 
     // Code Output & Line Numbers
@@ -586,12 +806,20 @@
 
     var lines = scriptText.split("\n");
     if (codeEl) {
-      codeEl.innerHTML = Catalog.highlightSqlHtml(scriptText);
+      codeEl.innerHTML = Catalog.highlightSqlHtml(scriptText, activeRange);
+      if (scrollCodeToSelection && activeRange) {
+        var firstHl = codeEl.querySelector(".code-line.is-highlighted");
+        if (firstHl && firstHl.scrollIntoView) {
+          firstHl.scrollIntoView({ block: "nearest", inline: "nearest" });
+        }
+      }
     }
     if (gutterEl) {
       gutterEl.innerHTML = lines
         .map(function (_, idx) {
-          return "<div>" + (idx + 1) + "</div>";
+          var lineNum = idx + 1;
+          var isHl = Boolean(activeRange && lineNum >= activeRange.start && lineNum <= activeRange.end);
+          return '<div class="' + (isHl ? "is-highlighted" : "") + '">' + lineNum + "</div>";
         })
         .join("");
     }
@@ -606,6 +834,29 @@
       } else {
         modeChip.textContent = "SQL*Plus / SQLcl";
       }
+    }
+
+    var impactStrip = document.getElementById("script-impact-pills");
+    if (impactStrip) {
+      var impactItems = [
+        ["Buffer RAM", impact.ramBuffer],
+        ["Redo Log (.log)", impact.redoLog],
+        ["Datafile (.dbf)", impact.datafile],
+        ["Control File (.ctl)", impact.controlFile]
+      ];
+      impactStrip.innerHTML =
+        '<span class="impact-label">Toca en Oracle:</span>' +
+        impactItems
+          .map(function (pair) {
+            return (
+              '<span class="impact-pill ' +
+              (pair[1] ? "is-on" : "is-off") +
+              '">' +
+              escapeHtml(pair[0]) +
+              "</span>"
+            );
+          })
+          .join("");
     }
 
     // Download button label
@@ -1058,13 +1309,89 @@
       });
     }
 
+    // Workbench toolbar buttons (Undo, Redo, Compact, Palette, Expand, Exit nesting)
+    var btnUndo = document.getElementById("btn-undo");
+    if (btnUndo) btnUndo.addEventListener("click", performUndo);
+    var btnRedo = document.getElementById("btn-redo");
+    if (btnRedo) btnRedo.addEventListener("click", performRedo);
+
+    var btnCompact = document.getElementById("btn-toggle-compact");
+    if (btnCompact) {
+      btnCompact.addEventListener("click", function () {
+        state.compactCards = !state.compactCards;
+        saveViewPrefs();
+        applyWorkbenchPrefs();
+      });
+    }
+
+    var btnTogglePalette = document.getElementById("btn-toggle-palette");
+    if (btnTogglePalette) {
+      btnTogglePalette.addEventListener("click", function () {
+        if (state.canvasExpanded) {
+          state.canvasExpanded = false;
+          state.paletteCollapsed = true;
+        } else {
+          state.paletteCollapsed = !state.paletteCollapsed;
+        }
+        saveViewPrefs();
+        applyWorkbenchPrefs();
+      });
+    }
+
+    var btnExpandCanvas = document.getElementById("btn-expand-canvas");
+    if (btnExpandCanvas) {
+      btnExpandCanvas.addEventListener("click", function () {
+        state.canvasExpanded = !state.canvasExpanded;
+        saveViewPrefs();
+        applyWorkbenchPrefs();
+      });
+    }
+
+    var btnRestorePanes = document.getElementById("btn-restore-panes");
+    if (btnRestorePanes) {
+      btnRestorePanes.addEventListener("click", function () {
+        state.canvasExpanded = false;
+        state.paletteCollapsed = false;
+        saveViewPrefs();
+        applyWorkbenchPrefs();
+      });
+    }
+
+    var btnExitNesting = document.getElementById("btn-exit-nesting");
+    if (btnExitNesting) {
+      btnExitNesting.addEventListener("click", function () {
+        state.activeParentUid = "";
+        renderCanvas();
+        showToast("Destino vuelto al flujo principal");
+      });
+    }
+
+    document.addEventListener("keydown", function (ev) {
+      if (state.activeTab !== "scratch") return;
+      var activeTag = document.activeElement ? document.activeElement.tagName : "";
+      if (activeTag === "INPUT" || activeTag === "TEXTAREA" || activeTag === "SELECT") return;
+      if ((ev.ctrlKey || ev.metaKey) && !ev.altKey) {
+        var k = ev.key.toLowerCase();
+        if (k === "z" && !ev.shiftKey) {
+          ev.preventDefault();
+          performUndo();
+        } else if (k === "y" || (k === "z" && ev.shiftKey)) {
+          ev.preventDefault();
+          performRedo();
+        }
+      }
+    });
+
     // Preset selector
     var presetSelect = document.getElementById("preset-select");
     if (presetSelect) {
       presetSelect.addEventListener("change", function () {
         var key = presetSelect.value;
         if (!key || !Catalog.PRESETS[key]) return;
+        recordUndoSnapshot();
         state.blocks = Catalog.PRESETS[key]();
+        state.activeParentUid = "";
+        state.selectedBlockUid = state.blocks[0] ? state.blocks[0].uid : null;
         saveWorkspace();
         renderAll();
         presetSelect.value = "";
@@ -1129,22 +1456,42 @@
         var card = ev.target.closest(".palette-card");
         if (!card) return;
         state.dragPayload = { type: "new", commandId: card.getAttribute("data-command-id") };
+        var stackEl = document.getElementById("block-stack");
+        if (stackEl) stackEl.classList.add("is-reordering");
         ev.dataTransfer.effectAllowed = "copy";
         ev.dataTransfer.setData("text/plain", card.getAttribute("data-command-id"));
       });
     }
+
+    // Global dragend cleanup so palette drags always close expanded drop slots
+    document.addEventListener("dragend", function () {
+      var stackEl = document.getElementById("block-stack");
+      if (stackEl) stackEl.classList.remove("is-reordering");
+      document.querySelectorAll(".drop-slot.is-active, .cblock-body.is-drag-target").forEach(function (el) {
+        el.classList.remove("is-active", "is-drag-target");
+      });
+    });
 
     // Canvas events (move, edit, delete, drag & drop)
     var blockStack = document.getElementById("block-stack");
     var dropzone = document.getElementById("canvas-dropzone");
 
     if (blockStack) {
+      blockStack.addEventListener("focusin", function (ev) {
+        if (ev.target.matches(".block-input, .block-select")) {
+          recordUndoSnapshot();
+        }
+      });
+
       blockStack.addEventListener("click", function (ev) {
         var presetBtn = ev.target.closest("[data-load-preset]");
         if (presetBtn) {
           var key = presetBtn.getAttribute("data-load-preset");
           if (Catalog.PRESETS[key]) {
+            recordUndoSnapshot();
             state.blocks = Catalog.PRESETS[key]();
+            state.activeParentUid = "";
+            state.selectedBlockUid = state.blocks[0] ? state.blocks[0].uid : null;
             saveWorkspace();
             renderAll();
           }
@@ -1167,21 +1514,38 @@
         var insideBtn = ev.target.closest("[data-insert-inside]");
         if (insideBtn) {
           var parentUid = insideBtn.getAttribute("data-insert-inside");
+          var insideCmd = insideBtn.getAttribute("data-inside-cmd") || "dbms_output";
           var list = getTargetList(parentUid);
-          insertBlockAt("dbms_output", parentUid, list.length);
-          showToast("Tarjeta anidada dentro del bloque PL/SQL");
+          insertBlockAt(insideCmd, parentUid, list.length);
+          showToast("Tarjeta anidada dentro del contenedor");
           return;
         }
 
         var actionBtn = ev.target.closest("[data-action]");
-        if (!actionBtn) return;
-        var uid = actionBtn.getAttribute("data-uid");
-        var act = actionBtn.getAttribute("data-action");
-        if (act === "up") moveBlockStep(uid, -1);
-        else if (act === "down") moveBlockStep(uid, 1);
-        else if (act === "dup") duplicateBlock(uid);
-        else if (act === "unnest") unnestBlock(uid);
-        else if (act === "del") deleteBlock(uid);
+        if (actionBtn) {
+          var uid = actionBtn.getAttribute("data-uid");
+          var act = actionBtn.getAttribute("data-action");
+          if (act === "up") moveBlockStep(uid, -1);
+          else if (act === "down") moveBlockStep(uid, 1);
+          else if (act === "dup") duplicateBlock(uid);
+          else if (act === "unnest") unnestBlock(uid);
+          else if (act === "toggle-disabled") toggleDisabledBlock(uid);
+          else if (act === "del") deleteBlock(uid);
+          return;
+        }
+
+        if (!ev.target.closest("input, select, button")) {
+          var blkEl = ev.target.closest("[data-uid]");
+          if (blkEl) {
+            var clickedUid = blkEl.getAttribute("data-uid");
+            state.selectedBlockUid = clickedUid;
+            blockStack.querySelectorAll("[data-uid].is-selected").forEach(function (el) {
+              el.classList.remove("is-selected");
+            });
+            blkEl.classList.add("is-selected");
+            renderScriptAndRecommendations(true);
+          }
+        }
       });
 
       // Prevent drag hijacking when user clicks to select text inside inputs/selects
@@ -1227,12 +1591,14 @@
         ev.stopPropagation();
         state.dragPayload = { type: "move", uid: blkEl.getAttribute("data-uid") };
         blkEl.classList.add("is-dragging");
+        blockStack.classList.add("is-reordering");
         ev.dataTransfer.effectAllowed = "move";
         ev.dataTransfer.setData("text/plain", state.dragPayload.uid);
       });
 
       blockStack.addEventListener("dragend", function () {
         state.dragPayload = null;
+        blockStack.classList.remove("is-reordering");
         document.querySelectorAll(".is-dragging, .drop-slot.is-active, .cblock-body.is-drag-target").forEach(function (el) {
           el.classList.remove("is-dragging", "is-active", "is-drag-target");
         });
@@ -1268,6 +1634,7 @@
         if ((!slot && !cbody) || !state.dragPayload) return;
         ev.preventDefault();
         ev.stopPropagation();
+        blockStack.classList.remove("is-reordering");
         if (slot) slot.classList.remove("is-active");
         if (cbody) cbody.classList.remove("is-drag-target");
 
@@ -1298,6 +1665,7 @@
       });
       dropzone.addEventListener("drop", function (ev) {
         dropzone.classList.remove("is-drag-over");
+        if (blockStack) blockStack.classList.remove("is-reordering");
         if (!state.dragPayload) return;
         if (ev.target.closest(".drop-slot")) return;
         ev.preventDefault();
@@ -1314,7 +1682,10 @@
     var btnClear = document.getElementById("btn-clear-canvas");
     if (btnClear) {
       btnClear.addEventListener("click", function () {
+        if (state.blocks.length > 0) recordUndoSnapshot();
         state.blocks = [];
+        state.activeParentUid = "";
+        state.selectedBlockUid = null;
         saveWorkspace();
         renderAll();
         showToast("Lienzo vaciado");
@@ -1434,8 +1805,11 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
+    loadViewPrefs();
     loadWorkspace();
     applyGuideBannerState();
+    applyWorkbenchPrefs();
+    updateHistoryButtons();
     bindEvents();
     renderAll();
   });

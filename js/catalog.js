@@ -531,6 +531,236 @@
       render: function () {
         return ["RESTORE DATABASE;", "RECOVER DATABASE;"];
       }
+    },
+    {
+      id: "create_user_ro",
+      category: "session",
+      title: "Crear usuario Read-Only",
+      kind: "sql",
+      risk: "medium",
+      storageEffect: "none",
+      impactTag: "Mínimo privilegio",
+      syntaxPreview: "CREATE USER ...; GRANT SELECT_CATALOG_ROLE",
+      hint: "Crea un usuario seguro para IA o monitoreo: solo puede leer vistas V$ sin modificar datos.",
+      fields: [
+        { key: "user", label: "Usuario", type: "text", default: "AGENT_RO" },
+        { key: "pwd", label: "Clave temporal", type: "text", default: "Cambiar_2026" }
+      ],
+      render: function (p) {
+        var u = safeIdent(p.user, "AGENT_RO");
+        var pwd = safeIdent(p.pwd, "Cambiar_2026");
+        return [
+          "CREATE USER " + u + " IDENTIFIED BY \"" + pwd.replace(/"/g, "") + "\";",
+          "GRANT CREATE SESSION, SELECT_CATALOG_ROLE TO " + u + ";"
+        ];
+      }
+    },
+    {
+      id: "create_view",
+      category: "ddl",
+      title: "Crear Vista (VIEW)",
+      kind: "sql",
+      risk: "low",
+      storageEffect: "none",
+      impactTag: "Consulta guardada",
+      syntaxPreview: "CREATE OR REPLACE VIEW ... AS SELECT ...",
+      hint: "Guarda una consulta SQL con nombre propio para reutilizarla sin duplicar datos en disco.",
+      fields: [
+        { key: "view", label: "Vista", type: "text", default: "V_VENTAS_RESUMEN" },
+        { key: "query", label: "SELECT", type: "text", default: "SELECT ID_VENTA, MONTO FROM VENTAS_REG", wide: true }
+      ],
+      render: function (p) {
+        return [
+          "CREATE OR REPLACE VIEW " + safeIdent(p.view, "V_RESUMEN") + " AS",
+          "  " + safeIdent(p.query, "SELECT 1 AS OK FROM DUAL") + ";"
+        ];
+      }
+    },
+    {
+      id: "add_fk_constraint",
+      category: "ddl",
+      title: "Añadir Clave Foránea (FK)",
+      kind: "sql",
+      risk: "medium",
+      storageEffect: "none",
+      impactTag: "Integridad DDL",
+      syntaxPreview: "ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY",
+      hint: "Conecta dos tablas garantizando que ningún registro apunte a un padre inexistente.",
+      fields: [
+        { key: "table", label: "Tabla hija", type: "text", default: "VENTAS_REG" },
+        { key: "cname", label: "Restricción", type: "text", default: "FK_VENTAS_CLI" },
+        { key: "col", label: "Columna", type: "text", default: "ID_CLIENTE" },
+        { key: "ref", label: "Referencias", type: "text", default: "CLIENTES(ID_CLIENTE)" }
+      ],
+      render: function (p) {
+        return [
+          "ALTER TABLE " + safeIdent(p.table, "VENTAS_REG") +
+          " ADD CONSTRAINT " + safeIdent(p.cname, "FK_TABLA") +
+          " FOREIGN KEY (" + safeIdent(p.col, "ID_REF") + ") REFERENCES " + safeIdent(p.ref, "MAESTRO(ID)") + ";"
+        ];
+      }
+    },
+    {
+      id: "merge_upsert",
+      category: "dml",
+      title: "Insertar o Actualizar (MERGE)",
+      kind: "sql",
+      risk: "medium",
+      storageEffect: "dml",
+      impactTag: "Undo + Redo",
+      syntaxPreview: "MERGE INTO ... WHEN MATCHED THEN UPDATE ...",
+      hint: "Si la fila ya existe la actualiza y si no existe la inserta en una sola transacción.",
+      fields: [
+        { key: "table", label: "Tabla", type: "text", default: "VENTAS_REG" },
+        { key: "srcId", label: "ID", type: "text", default: "101" },
+        { key: "srcMonto", label: "Monto", type: "text", default: "490.00" }
+      ],
+      render: function (p) {
+        var t = safeIdent(p.table, "VENTAS_REG");
+        var id = safeIdent(p.srcId, "101");
+        var m = safeIdent(p.srcMonto, "490.00");
+        return [
+          "MERGE INTO " + t + " dest",
+          "USING (SELECT " + id + " AS id_v, " + m + " AS mnt FROM DUAL) src",
+          "ON (dest.ID_VENTA = src.id_v)",
+          "WHEN MATCHED THEN UPDATE SET dest.MONTO = src.mnt",
+          "WHEN NOT MATCHED THEN INSERT (ID_VENTA, MONTO) VALUES (src.id_v, src.mnt);"
+        ];
+      }
+    },
+    {
+      id: "resize_datafile",
+      category: "storage",
+      title: "Redimensionar Datafile",
+      kind: "sql",
+      risk: "medium",
+      storageEffect: "datafile",
+      impactTag: "Amplía .dbf + .ctl",
+      syntaxPreview: "ALTER DATABASE DATAFILE '...' RESIZE ...",
+      hint: "Cambia el tamaño físico de un Datafile .dbf existente y actualiza su metadata en el Control File.",
+      fields: [
+        { key: "datafile", label: "Datafile", type: "text", default: "/u01/oradata/tbs_ventas01.dbf", wide: true },
+        { key: "size", label: "Nuevo SIZE", type: "text", default: "250M" }
+      ],
+      render: function (p) {
+        return [
+          "ALTER DATABASE DATAFILE '" + escapeSqlString(safeIdent(p.datafile, "/u01/oradata/users01.dbf")) +
+          "' RESIZE " + safeIdent(p.size, "250M") + ";"
+        ];
+      }
+    },
+    {
+      id: "add_redo_group",
+      category: "storage",
+      title: "Crear Grupo Redo Multiplexado",
+      kind: "sql",
+      risk: "medium",
+      storageEffect: "checkpoint",
+      impactTag: "Espejo .log + .ctl",
+      syntaxPreview: "ALTER DATABASE ADD LOGFILE GROUP ... ('...', '...')",
+      hint: "Añade un grupo Online Redo Log con 2 copias espejo en discos distintos para tolerar fallos.",
+      fields: [
+        { key: "grp", label: "Grupo #", type: "text", default: "3" },
+        { key: "m1", label: "Miembro A", type: "text", default: "/u01/oradata/redo03a.log", wide: true },
+        { key: "m2", label: "Miembro B", type: "text", default: "/u02/oradata/redo03b.log", wide: true },
+        { key: "size", label: "SIZE", type: "text", default: "100M" }
+      ],
+      render: function (p) {
+        return [
+          "ALTER DATABASE ADD LOGFILE GROUP " + safeIdent(p.grp, "3") + " (",
+          "  '" + escapeSqlString(safeIdent(p.m1, "/u01/oradata/redo03a.log")) + "',",
+          "  '" + escapeSqlString(safeIdent(p.m2, "/u02/oradata/redo03b.log")) + "'",
+          ") SIZE " + safeIdent(p.size, "100M") + ";"
+        ];
+      }
+    },
+    {
+      id: "check_archivelog",
+      category: "storage",
+      title: "Verificar modo ARCHIVELOG",
+      kind: "sql",
+      risk: "low",
+      storageEffect: "none",
+      impactTag: "Lee Controlfile",
+      syntaxPreview: "SELECT LOG_MODE, OPEN_MODE FROM V$DATABASE;",
+      hint: "Comprueba si Oracle guarda copias históricas de los Redo Logs llenos (imprescindible en producción).",
+      fields: [],
+      render: function () {
+        return ["SELECT NAME, LOG_MODE, OPEN_MODE, FLASHBACK_ON FROM V$DATABASE;"];
+      }
+    },
+    {
+      id: "plsql_if",
+      category: "plsql",
+      title: "Condicional IF ... THEN",
+      kind: "cblock",
+      cblockFamily: "plsql",
+      footLabel: "END IF;",
+      risk: "low",
+      storageEffect: "none",
+      impactTag: "Contenedor C",
+      syntaxPreview: "IF [condición] THEN [bloques] END IF;",
+      hint: "Caja Scratch C: ejecuta las tarjetas internas únicamente cuando se cumpla la condición.",
+      fields: [
+        { key: "cond", label: "Si se cumple", type: "text", default: "v_lote IS NOT NULL", wide: true }
+      ],
+      renderHead: function (p) {
+        return ["IF " + safeIdent(p.cond, "1 = 1") + " THEN"];
+      },
+      renderFoot: function () {
+        return ["END IF;"];
+      }
+    },
+    {
+      id: "plsql_cursor_loop",
+      category: "plsql",
+      title: "Recorrer consulta (CURSOR FOR)",
+      kind: "cblock",
+      cblockFamily: "plsql",
+      footLabel: "END LOOP;",
+      risk: "low",
+      storageEffect: "dml",
+      impactTag: "Bucle Consulta C",
+      syntaxPreview: "FOR reg IN (SELECT ...) LOOP [bloques] END LOOP;",
+      hint: "Caja Scratch C: recorre fila por fila el resultado de un SELECT usando la variable de registro.",
+      fields: [
+        { key: "rec", label: "Registro", type: "text", default: "reg" },
+        { key: "query", label: "Consulta", type: "text", default: "SELECT ID_VENTA, MONTO FROM VENTAS_REG", wide: true }
+      ],
+      renderHead: function (p) {
+        return ["FOR " + safeIdent(p.rec, "reg") + " IN (" + safeIdent(p.query, "SELECT 1 AS N FROM DUAL") + ") LOOP"];
+      },
+      renderFoot: function () {
+        return ["END LOOP;"];
+      }
+    },
+    {
+      id: "rman_run_block",
+      category: "rman",
+      title: "Bloque RMAN RUN { ... }",
+      kind: "cblock",
+      cblockFamily: "rman",
+      footLabel: "} (Fin RMAN RUN)",
+      risk: "medium",
+      storageEffect: "datafile",
+      impactTag: "Contenedor RMAN C",
+      syntaxPreview: "RUN { ALLOCATE CHANNEL ...; [bloques RMAN] }",
+      hint: "Caja Scratch C para RMAN: agrupa canales y respaldos que deben ejecutarse juntos en RMAN.",
+      fields: [
+        { key: "ch", label: "Canal", type: "text", default: "ch1" }
+      ],
+      renderHead: function (p) {
+        return [
+          "RUN {",
+          "  ALLOCATE CHANNEL " + safeIdent(p.ch, "ch1") + " DEVICE TYPE DISK;"
+        ];
+      },
+      renderFoot: function (p) {
+        return [
+          "  RELEASE CHANNEL " + safeIdent(p.ch, "ch1") + ";",
+          "}"
+        ];
+      }
     }
   ];
 
@@ -550,6 +780,7 @@
       uid: "blk_" + Math.random().toString(36).slice(2, 9),
       commandId: commandId,
       params: params,
+      disabled: Boolean(overrides && overrides.disabled),
       children: def.kind === "cblock" ? [] : undefined
     };
   }
@@ -580,11 +811,15 @@
       loopBlk.children = [
         createBlockInstance("insert_row", { table: "VENTAS_REG", cols: "ID_VENTA, MONTO", vals: "200 + i, 125 * i" })
       ];
+      var ifBlk = createBlockInstance("plsql_if", { cond: "v_lote IS NOT NULL" });
+      ifBlk.children = [
+        createBlockInstance("dbms_output", { text: "Lote procesado correctamente con SAVEPOINT" })
+      ];
       var plsqlBlk = createBlockInstance("plsql_block", { varDecl: "v_lote VARCHAR2(30) := 'LOTE_01';" });
       plsqlBlk.children = [
         createBlockInstance("savepoint", { name: "SP_INICIO" }),
         loopBlk,
-        createBlockInstance("dbms_output", { text: "Lote procesado correctamente con SAVEPOINT" }),
+        ifBlk,
         createBlockInstance("commit_tx")
       ];
       return [
@@ -594,13 +829,18 @@
       ];
     },
     redo_rman: function () {
+      var rmanRun = createBlockInstance("rman_run_block", { ch: "ch1" });
+      rmanRun.children = [
+        createBlockInstance("rman_backup_db"),
+        createBlockInstance("rman_backup_ctrl", { path: "/u01/backup/ctl_%U.bkp" })
+      ];
       return [
         createBlockInstance("prompt_msg", { msg: "Rotando Redo Log y forzando Checkpoint antes de respaldar" }),
         createBlockInstance("switch_logfile"),
         createBlockInstance("system_checkpoint"),
         createBlockInstance("backup_controlfile_trace", { path: "/u01/backup/ctl_recreate.sql" }),
         createBlockInstance("rman_autobackup"),
-        createBlockInstance("rman_backup_ctrl", { path: "/u01/backup/ctl_%U.bkp" })
+        rmanRun
       ];
     },
     storage_views: function () {
@@ -610,89 +850,192 @@
         createBlockInstance("select_query", { cols: "GROUP#, SEQUENCE#, BYTES/1024/1024 AS MB, STATUS", table: "V$LOG", cond: "" }),
         createBlockInstance("select_query", { cols: "GROUP#, MEMBER, TYPE", table: "V$LOGFILE", cond: "" })
       ];
+    },
+    storage_multiplex: function () {
+      return [
+        createBlockInstance("check_archivelog"),
+        createBlockInstance("add_redo_group", {
+          grp: "3",
+          m1: "/u01/oradata/redo03a.log",
+          m2: "/u02/oradata/redo03b.log",
+          size: "100M"
+        }),
+        createBlockInstance("resize_datafile", {
+          datafile: "/u01/oradata/tbs_ventas01.dbf",
+          size: "250M"
+        }),
+        createBlockInstance("system_checkpoint"),
+        createBlockInstance("create_user_ro", { user: "AGENT_RO", pwd: "Cambiar_2026" })
+      ];
     }
   };
 
-  function flattenBlocks(blocks, depth, out) {
+  function isRmanCblock(def) {
+    return def && def.kind === "cblock" && (def.cblockFamily === "rman" || def.category === "rman");
+  }
+
+  function flattenBlocks(blocks, depth, out, parentDef, parentDisabled) {
     depth = depth || 0;
     out = out || [];
     (blocks || []).forEach(function (blk) {
       var def = COMMAND_MAP[blk.commandId];
       if (!def) return;
-      out.push({ blk: blk, def: def, depth: depth });
+      var effectiveDisabled = Boolean(parentDisabled || blk.disabled);
+      out.push({ blk: blk, def: def, depth: depth, parentDef: parentDef || null, disabled: effectiveDisabled });
       if (def.kind === "cblock" && Array.isArray(blk.children)) {
-        flattenBlocks(blk.children, depth + 1, out);
+        flattenBlocks(blk.children, depth + 1, out, def, effectiveDisabled);
       }
     });
     return out;
   }
 
-  function renderLines(blocks, outputMode, indentStr) {
+  function renderLinesWithMap(blocks, outputMode, indentStr, lineOffset, blockRanges, forceDisabled) {
     indentStr = indentStr || "";
+    lineOffset = lineOffset || 0;
+    blockRanges = blockRanges || {};
     var lines = [];
+
+    function pushLine(l, commentPrefix) {
+      lines.push(commentPrefix ? indentStr + commentPrefix + l : indentStr + l);
+    }
+
     (blocks || []).forEach(function (blk) {
       var def = COMMAND_MAP[blk.commandId];
       if (!def) return;
+      var isDisabled = Boolean(forceDisabled || blk.disabled);
+      var rmanBlock = isRmanCblock(def);
+      var isRmanItem = def.kind === "rman" || rmanBlock;
 
-      if (outputMode === "rman" && def.kind !== "rman") {
+      if (outputMode === "rman" && !isRmanItem) {
         if (def.kind === "cblock" && Array.isArray(blk.children)) {
-          lines = lines.concat(renderLines(blk.children, outputMode, indentStr));
+          var subOnly = renderLinesWithMap(
+            blk.children,
+            outputMode,
+            indentStr,
+            lineOffset + lines.length,
+            blockRanges,
+            isDisabled
+          );
+          lines = lines.concat(subOnly);
         }
         return;
+      }
+
+      var startLine = lineOffset + lines.length + 1;
+      var prefix = "";
+      if (isDisabled) {
+        prefix = "-- [Pausado] ";
+      } else if (outputMode === "sql" && isRmanItem) {
+        prefix = "-- [Ejecutar en RMAN] ";
       }
 
       if (def.kind === "cblock") {
-        if (outputMode === "sql") {
-          def.renderHead(blk.params).forEach(function (l) {
-            lines.push(indentStr + l);
-          });
-          var inner = renderLines(blk.children || [], outputMode, indentStr + "  ");
-          if (inner.length === 0) {
-            lines.push(indentStr + "  NULL;");
-          } else {
-            lines = lines.concat(inner);
-          }
-          def.renderFoot(blk.params).forEach(function (l) {
-            lines.push(indentStr + l);
-          });
-        }
-        return;
-      }
-
-      if (outputMode === "sql" && def.kind === "rman") {
-        def.render(blk.params).forEach(function (l) {
-          lines.push(indentStr + "-- [Ejecutar en RMAN] " + l);
+        def.renderHead(blk.params).forEach(function (l) {
+          pushLine(l, prefix);
         });
-        return;
+        var inner = renderLinesWithMap(
+          blk.children || [],
+          outputMode,
+          indentStr + "  ",
+          lineOffset + lines.length,
+          blockRanges,
+          isDisabled
+        );
+        if (inner.length === 0) {
+          if (rmanBlock) {
+            pushLine("-- (Sin sentencias RMAN dentro del bloque RUN)", isDisabled ? "-- [Pausado] " : "");
+          } else {
+            pushLine("  NULL;", isDisabled ? "-- [Pausado] " : "");
+          }
+        } else {
+          lines = lines.concat(inner);
+        }
+        def.renderFoot(blk.params).forEach(function (l) {
+          pushLine(l, prefix);
+        });
+      } else {
+        def.render(blk.params).forEach(function (l) {
+          pushLine(l, prefix);
+        });
       }
 
-      def.render(blk.params).forEach(function (l) {
-        lines.push(indentStr + l);
-      });
+      var endLine = lineOffset + lines.length;
+      blockRanges[blk.uid] = { start: startLine, end: Math.max(startLine, endLine) };
     });
+
     return lines;
   }
 
-  function buildScript(blocks, outputMode) {
+  function buildScriptWithMap(blocks, outputMode) {
     var mode = outputMode === "rman" ? "rman" : "sql";
-    var bodyLines = renderLines(blocks, mode, "");
     if (!blocks || blocks.length === 0) {
-      return mode === "rman"
+      var emptyText = mode === "rman"
         ? "-- Agrega tarjetas RMAN para generar comandos de respaldo o recuperación."
         : "-- Arrastra o haz clic en las tarjetas de la izquierda para construir tu script Oracle.";
-    }
-    if (mode === "rman" && bodyLines.length === 0) {
-      return "-- El lienzo actual no contiene tarjetas RMAN.\n-- Agrega bloques rojos de RMAN o cambia a vista SQL / PL-SQL.";
+      return { text: emptyText, blockRanges: {} };
     }
     var header = mode === "rman"
       ? ["-- Script RMAN generado por OraBlock Lab", "-- Conectar con: rman target /"]
       : ["-- Script Oracle SQL / PL-SQL generado por OraBlock Lab"];
-    return header.concat(bodyLines).join("\n");
+    var blockRanges = {};
+    var bodyLines = renderLinesWithMap(blocks, mode, "", header.length, blockRanges, false);
+    if (mode === "rman" && bodyLines.length === 0) {
+      return {
+        text: "-- El lienzo actual no contiene tarjetas RMAN.\n-- Agrega bloques rojos de RMAN o cambia a vista SQL / PL-SQL.",
+        blockRanges: {}
+      };
+    }
+    return {
+      text: header.concat(bodyLines).join("\n"),
+      blockRanges: blockRanges
+    };
+  }
+
+  function buildScript(blocks, outputMode) {
+    return buildScriptWithMap(blocks, outputMode).text;
+  }
+
+  function summarizeStorageImpact(blocks) {
+    var flat = flattenBlocks(blocks);
+    var active = flat.filter(function (entry) {
+      return !entry.disabled;
+    });
+    var disabledCount = flat.length - active.length;
+    var impact = {
+      ramBuffer: false,
+      redoLog: false,
+      datafile: false,
+      controlFile: false,
+      activeCount: active.length,
+      disabledCount: disabledCount
+    };
+
+    active.forEach(function (entry) {
+      var eff = entry.def.storageEffect;
+      if (eff === "dml") {
+        impact.ramBuffer = true;
+        impact.redoLog = true;
+      } else if (eff === "commit") {
+        impact.redoLog = true;
+      } else if (eff === "datafile") {
+        impact.datafile = true;
+        impact.controlFile = true;
+      } else if (eff === "checkpoint") {
+        impact.ramBuffer = true;
+        impact.redoLog = true;
+        impact.datafile = true;
+        impact.controlFile = true;
+      } else if (eff === "controlfile") {
+        impact.controlFile = true;
+      }
+    });
+
+    return impact;
   }
 
   function analyzeScript(blocks) {
     var flat = flattenBlocks(blocks);
-    var counts = { total: flat.length, session: 0, ddl: 0, dml: 0, storage: 0, plsql: 0, rman: 0 };
+    var counts = { total: flat.length, active: 0, disabled: 0, session: 0, ddl: 0, dml: 0, storage: 0, plsql: 0, rman: 0 };
     var warnings = [];
     var hasUncommittedDml = false;
     var hasBackup = false;
@@ -704,14 +1047,22 @@
       var def = entry.def;
       var p = entry.blk.params || {};
       counts[def.category] = (counts[def.category] || 0) + 1;
+      if (entry.disabled) {
+        counts.disabled += 1;
+        return;
+      }
+      counts.active += 1;
 
-      if (def.kind === "rman") hasRman = true;
+      var rmanBlock = isRmanCblock(def);
+      var isRmanItem = def.kind === "rman" || rmanBlock;
+
+      if (isRmanItem) hasRman = true;
       else hasSql = true;
 
       if (def.risk === "medium") riskScore = Math.max(riskScore, 1);
       if (def.risk === "high") riskScore = Math.max(riskScore, 2);
 
-      if (def.id === "insert_row" || def.id === "update_row" || def.id === "delete_row") {
+      if (def.id === "insert_row" || def.id === "update_row" || def.id === "delete_row" || def.id === "merge_upsert") {
         hasUncommittedDml = true;
       }
       if (def.id === "commit_tx" || def.category === "ddl" || (def.id === "rollback_tx" && !String(p.sp || "").trim())) {
@@ -721,8 +1072,15 @@
         hasBackup = true;
       }
 
-      if (entry.depth > 0) {
-        if (def.kind === "rman") {
+      if (entry.depth > 0 && entry.parentDef) {
+        if (isRmanCblock(entry.parentDef)) {
+          if (!isRmanItem) {
+            warnings.push({
+              level: "warn",
+              text: "Dentro de 'Bloque RMAN RUN { ... }' solo van tarjetas rojas RMAN; '" + def.title + "' debe ir fuera en el flujo SQL."
+            });
+          }
+        } else if (isRmanItem) {
           warnings.push({
             level: "warn",
             text: "La tarjeta RMAN '" + def.title + "' no puede ir dentro de un bloque PL/SQL; sácala al flujo principal o usa la vista Solo RMAN."
@@ -784,7 +1142,7 @@
       });
     }
 
-    if (flat.length > 0 && warnings.length === 0) {
+    if (counts.active > 0 && warnings.length === 0) {
       warnings.push({
         level: "ok",
         text: "Flujo estructuralmente consistente: sin operaciones sin filtro ni transacciones abiertas."
@@ -801,26 +1159,28 @@
     };
   }
 
-  function highlightSqlHtml(code) {
+  function highlightSqlHtml(code, activeRange) {
     var escaped = String(code || "")
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
 
-    var tokenRegex = /'[^']*'|\b(?:ALTER|SESSION|SET|CONTAINER|CREATE|TABLESPACE|DATAFILE|SIZE|AUTOEXTEND|ON|OFF|NEXT|MAXSIZE|TABLE|PRIMARY|KEY|ADD|INDEX|TRUNCATE|SELECT|FROM|WHERE|INSERT|INTO|VALUES|UPDATE|DELETE|COMMIT|ROLLBACK|TO|SAVEPOINT|SYSTEM|SWITCH|LOGFILE|CHECKPOINT|DATABASE|BACKUP|CONTROLFILE|TRACE|AS|DECLARE|BEGIN|EXCEPTION|WHEN|OTHERS|THEN|RAISE|END|FOR|IN|LOOP|CONFIGURE|AUTOBACKUP|PLUS|ARCHIVELOG|FORMAT|RESTORE|RECOVER|RESIZE|WHENEVER|SQLERROR|EXIT|PROMPT|SERVEROUTPUT|UNLIMITED|NUMBER|VARCHAR2|DATE|DEFAULT|SYSDATE|NULL|CURRENT)\b/g;
+    var tokenRegex = /'[^']*'|\b(?:ALTER|SESSION|SET|CONTAINER|CREATE|TABLESPACE|DATAFILE|SIZE|AUTOEXTEND|ON|OFF|NEXT|MAXSIZE|TABLE|PRIMARY|KEY|ADD|INDEX|TRUNCATE|SELECT|FROM|WHERE|INSERT|INTO|VALUES|UPDATE|DELETE|COMMIT|ROLLBACK|TO|SAVEPOINT|SYSTEM|SWITCH|LOGFILE|CHECKPOINT|DATABASE|BACKUP|CONTROLFILE|TRACE|AS|DECLARE|BEGIN|EXCEPTION|WHEN|OTHERS|THEN|RAISE|END|FOR|IN|LOOP|IF|OR|REPLACE|VIEW|CONSTRAINT|FOREIGN|REFERENCES|MERGE|USING|MATCHED|NOT|IS|NULL|CURRENT|USER|IDENTIFIED|BY|GRANT|RUN|ALLOCATE|CHANNEL|DEVICE|TYPE|DISK|RELEASE|CONFIGURE|AUTOBACKUP|PLUS|ARCHIVELOG|FORMAT|RESTORE|RECOVER|RESIZE|WHENEVER|SQLERROR|EXIT|PROMPT|SERVEROUTPUT|UNLIMITED|NUMBER|VARCHAR2|DATE|DEFAULT|SYSDATE|DUAL|LOGFILE|GROUP)\b/g;
 
     return escaped
       .split("\n")
-      .map(function (line) {
-        if (/^\s*--/.test(line)) {
-          return '<span class="tok-cm">' + line + "</span>";
-        }
-        return line.replace(tokenRegex, function (match) {
-          if (match.charAt(0) === "'") {
-            return '<span class="tok-str">' + match + "</span>";
-          }
-          return '<span class="tok-kw">' + match + "</span>";
-        });
+      .map(function (line, idx) {
+        var lineNum = idx + 1;
+        var highlighted = Boolean(activeRange && lineNum >= activeRange.start && lineNum <= activeRange.end);
+        var rendered = /^\s*--/.test(line)
+          ? '<span class="tok-cm">' + line + "</span>"
+          : line.replace(tokenRegex, function (match) {
+              if (match.charAt(0) === "'") {
+                return '<span class="tok-str">' + match + "</span>";
+              }
+              return '<span class="tok-kw">' + match + "</span>";
+            });
+        return '<span class="code-line' + (highlighted ? " is-highlighted" : "") + '">' + (rendered || " ") + "</span>";
       })
       .join("\n");
   }
@@ -833,6 +1193,8 @@
     PRESETS: PRESETS,
     createBlockInstance: createBlockInstance,
     buildScript: buildScript,
+    buildScriptWithMap: buildScriptWithMap,
+    summarizeStorageImpact: summarizeStorageImpact,
     analyzeScript: analyzeScript,
     highlightSqlHtml: highlightSqlHtml
   };

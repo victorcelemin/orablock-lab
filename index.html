@@ -37,7 +37,7 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M4 6h16v5a2 2 0 0 0 0 4v5H4v-5a2 2 0 0 1 0-4V6z"/>
           </svg>
-          <span>1. Armar Script Scratch</span>
+          <span>1. Script Scratch</span>
         </button>
         <button type="button" class="mode-tab" role="tab" id="tab-agents" aria-selected="false" aria-controls="panel-agents" data-tab="agents">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -52,7 +52,7 @@
             <path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/>
             <path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/>
           </svg>
-          <span>3. Controlfile, Datafile y Redolog</span>
+          <span>3. Disco Oracle</span>
         </button>
       </nav>
     </div>
@@ -63,9 +63,10 @@
         <select id="preset-select" class="select-input">
           <option value="">Cargar ejemplo guiado...</option>
           <option value="tablespace_tx">Ejemplo 1: Crear espacio + guardar fila</option>
-          <option value="plsql_savepoint">Ejemplo 2: Bloque PL/SQL con bucle</option>
-          <option value="redo_rman">Ejemplo 3: Rotar Redo Log + Respaldo</option>
+          <option value="plsql_savepoint">Ejemplo 2: Bloque PL/SQL con bucle e IF</option>
+          <option value="redo_rman">Ejemplo 3: Log Switch + RMAN RUN { ... }</option>
           <option value="storage_views">Ejemplo 4: Consultar archivos en Oracle (V$)</option>
+          <option value="storage_multiplex">Ejemplo 5: Redo Multiplexado + Resize .dbf</option>
         </select>
       </div>
       <div class="risk-pill" id="header-risk-pill" aria-live="polite">
@@ -93,18 +94,19 @@
   <main id="main-workspace" class="workspace-shell">
     <!-- PANEL 1: SCRATCH BUILDER -->
     <section id="panel-scratch" class="tab-panel is-active" role="tabpanel" aria-labelledby="tab-scratch">
-      <div class="ide-grid">
+      <div class="ide-grid" id="ide-grid">
         <!-- Left Palette -->
         <aside class="palette-pane" aria-label="Paleta de tarjetas Scratch">
           <div class="pane-header">
             <h2 class="pane-title">Paso 1: Elige tarjetas</h2>
-            <span class="pane-meta" id="palette-count">27 bloques</span>
+            <span class="pane-meta" id="palette-count">37 bloques</span>
           </div>
           <div class="palette-tools">
             <label for="palette-search" class="sr-only">Buscar comando Oracle</label>
-            <input id="palette-search" type="search" class="search-input" placeholder="Buscar por nombre (ej. tabla, guardar, backup)">
+            <input id="palette-search" type="search" class="search-input" placeholder="Buscar por nombre (ej. tabla, if, merge, backup)">
             <div class="category-filters" id="category-filters" role="group" aria-label="Filtrar por categoría">
               <button type="button" class="cat-btn is-active" data-category="all">Todas</button>
+              <button type="button" class="cat-btn" data-category="cblocks">Contenedores C</button>
               <button type="button" class="cat-btn" data-category="session">Sesión</button>
               <button type="button" class="cat-btn" data-category="ddl">Tablas (DDL)</button>
               <button type="button" class="cat-btn" data-category="dml">Datos (DML)</button>
@@ -121,11 +123,24 @@
           <div class="canvas-toolbar">
             <div>
               <h1 class="canvas-title">Paso 2: Conecta las tarjetas en orden</h1>
-              <p class="canvas-subtitle">Haz clic en "+ Conectar tarjeta" o arrástrala al lienzo. Edita los campos oscuros de cada pieza para personalizar tu script.</p>
+              <p class="canvas-subtitle">Haz clic en "+ Conectar tarjeta" o arrástrala al lienzo. Haz clic en cualquier tarjeta para marcar sus líneas en el código.</p>
             </div>
             <div class="canvas-toolbar-actions">
+              <div class="workbench-btn-group" role="group" aria-label="Historial y tamaño de lienzo">
+                <button type="button" class="btn btn-ghost btn-compact" id="btn-undo" title="Deshacer cambio (Ctrl+Z)" disabled>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
+                  <span>Deshacer</span>
+                </button>
+                <button type="button" class="btn btn-ghost btn-compact" id="btn-redo" title="Rehacer cambio (Ctrl+Y)" disabled>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+                  <span>Rehacer</span>
+                </button>
+                <button type="button" class="btn btn-ghost btn-compact" id="btn-toggle-compact" aria-pressed="false" title="Ocultar pistas para ver más bloques a la vez">Vista compacta</button>
+                <button type="button" class="btn btn-ghost btn-compact" id="btn-toggle-palette" aria-pressed="false" title="Ocultar o mostrar la paleta izquierda">Ocultar paleta</button>
+                <button type="button" class="btn btn-ghost btn-compact" id="btn-expand-canvas" aria-pressed="false" title="Ampliar el lienzo Scratch a ancho completo">Lienzo amplio</button>
+              </div>
               <span class="count-badge" id="canvas-block-count">0 bloques</span>
-              <button type="button" class="btn btn-ghost" id="btn-clear-canvas">Vaciar lienzo</button>
+              <button type="button" class="btn btn-ghost btn-compact" id="btn-clear-canvas">Vaciar lienzo</button>
             </div>
           </div>
 
@@ -137,11 +152,16 @@
               <span class="legend-chip theme-dml">Verde: Datos y COMMIT</span>
               <span class="legend-chip theme-storage">Ámbar: Disco</span>
               <span class="legend-chip theme-plsql">Morado: Bloque C PL/SQL</span>
-              <span class="legend-chip theme-rman">Rojo: Backup RMAN</span>
+              <span class="legend-chip theme-rman">Rojo: Backup / RUN RMAN</span>
             </div>
             <button type="button" class="icon-btn" id="btn-dismiss-guide" title="Ocultar guía de colores" aria-label="Ocultar guía de colores">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
+          </div>
+
+          <div class="nesting-banner" id="nesting-target-banner" hidden>
+            <span id="nesting-target-label">Modo anidamiento activo</span>
+            <button type="button" class="btn btn-ghost btn-compact" id="btn-exit-nesting">Salir al flujo principal</button>
           </div>
 
           <div class="canvas-dropzone" id="canvas-dropzone" tabindex="0" aria-label="Área de ensamblaje de tarjetas Oracle">
@@ -152,6 +172,7 @@
             <div class="status-group">
               <span class="status-chip" id="status-mode">SQL*Plus / SQLcl</span>
               <span class="status-chip" id="status-lines">0 líneas</span>
+              <button type="button" class="link-btn" id="btn-restore-panes" hidden>Mostrar código y paleta</button>
             </div>
             <div class="status-actions">
               <button type="button" class="link-btn" id="btn-jump-agents">Ver qué IA y Harness usar con este script</button>
@@ -170,10 +191,12 @@
             </div>
           </div>
 
-          <div class="code-container">
+          <div class="code-container" id="code-container">
             <div class="code-gutter" id="code-gutter" aria-hidden="true"></div>
             <pre class="code-output" id="code-output" aria-live="polite"><code></code></pre>
           </div>
+
+          <div class="impact-strip" id="script-impact-pills" aria-label="Archivos de Oracle afectados por este script"></div>
 
           <div class="inspector-section" aria-label="Revisión automática del script">
             <div class="section-head">

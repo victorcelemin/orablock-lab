@@ -10,7 +10,7 @@ Aplicación web **100% estática** (HTML5 + CSS3 + JavaScript vanilla sin build 
 
 - `index.html` — Estructura accesible de los 3 módulos.
 - `styles.css` — Sistema visual IDE oscuro + bloques Scratch responsivos (desktop y móvil `375px`).
-- `js/catalog.js` — Catálogo de 27 comandos Oracle, plantillas guiadas, generador SQL/RMAN y linter de seguridad.
+- `js/catalog.js` — Catálogo de 37 comandos Oracle (incluyendo contenedores C `IF..THEN`, `FOR LOOP`, `CURSOR FOR`, `BEGIN..END` y `RMAN RUN { ... }`), plantillas guiadas, generador SQL/RMAN con mapa de líneas y linter de seguridad.
 - `js/agents.js` — Matriz de agentes y harnesses Oracle + generador de prompt, `AGENTS.md` y `mcp.json`.
 - `js/storage.js` — Motor del simulador transaccional / Crash Recovery y guías didácticas (`Control File`, `Datafile`, `Redo Log`).
 - `js/app.js` — Estado reactivo, drag-and-drop + controles accesibles por teclado, persistencia local (`localStorage`).
